@@ -3,72 +3,202 @@ version: '3.8'
 services:
 
   zookeeper:
-    image: bitnami/zookeeper:latest
+    image: confluentinc/cp-zookeeper:7.5.0
     container_name: zookeeper
     ports:
       - "2181:2181"
     environment:
-      ALLOW_ANONYMOUS_LOGIN: "yes"
-    networks:
-      - kafka-net
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
 
   kafka:
-    image: confluentinc/cp-kafka:7.6.0
+    image: confluentinc/cp-kafka:7.5.0
     container_name: kafka
     ports:
       - "9092:9092"
+      - "29092:29092"
+    depends_on:
+      - zookeeper
     environment:
       KAFKA_BROKER_ID: 1
       KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
-      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:29092,EXTERNAL://localhost:9092
+      KAFKA_LISTENERS: INTERNAL://0.0.0.0:29092,EXTERNAL://0.0.0.0:9092
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-    depends_on:
-      - zookeeper
-    networks:
-      - kafka-net
+
+  mongodb:
+    image: mongo:6
+    container_name: mongodb
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+
+  postgres:
+    image: postgres:16
+    container_name: postgres
+    restart: always
+    environment:
+      POSTGRES_DB: iot
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: admin
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
 
   kafka-ui:
     image: provectuslabs/kafka-ui:latest
     container_name: kafka-ui
     ports:
-      - "8085:8080"
-    environment:
-      KAFKA_CLUSTERS_0_NAME: local-kafka
-      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+      - "8086:8080"
     depends_on:
       - kafka
-    networks:
-      - kafka-net
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local-cluster
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
+      KAFKA_CLUSTERS_0_ZOOKEEPER: zookeeper:2181
 
   minio:
-    image: minio/minio
+    image: minio/minio:latest
     container_name: minio
     ports:
-      - "9000:9000"   # API
-      - "9001:9001"   # Web UI
+      - "9000:9000"
+      - "9001:9001"
     environment:
       MINIO_ROOT_USER: admin
       MINIO_ROOT_PASSWORD: admin123
-    volumes:
-      - minio_data:/data
+      MINIO_PROMETHEUS_AUTH_TYPE: public
     command: server /data --console-address ":9001"
-    networks:
-      - kafka-net
+    volumes:
+      - minio-data:/data
+
+  mailpit:
+    image: axllent/mailpit:latest
+    container_name: mailpit
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+
+  notify-service:
+    image: wiarr33/ae-notify:latest
+    pull_policy: always
+    container_name: notify-service
+    ports:
+      - "8084:8080"
+    depends_on:
+      - kafka
+      - mailpit
+    env_file:
+      - .env
+
+  archive-service:
+    image: wiarr33/ae-archive:latest
+    pull_policy: always
+    container_name: archive-service
+    ports:
+      - "8085:8080"
+    depends_on:
+      - kafka
+      - minio
+    env_file:
+      - .env
+
+  alert-service:
+    image: wiarr33/ae-alert:latest
+    pull_policy: always
+    container_name: alert-service
+    ports:
+      - "8082:8080"
+    depends_on:
+      - kafka
+    env_file:
+      - .env
+
+  validation-service:
+    image: wiarr33/ae-validation:latest
+    pull_policy: always
+    container_name: validation-service
+    ports:
+      - "8081:8080"
+    depends_on:
+      - kafka
+    env_file:
+      - .env
+
+  pump-simulator:
+    image: wiarr33/ae-pump-simulator:latest
+    pull_policy: always
+    container_name: pump-simulator
+    ports:
+      - "8080:8080"
+    depends_on:
+      - kafka
+    env_file:
+      - .env
+
+  alert-persistence-service:
+    image: wiarr33/ae-alert-persistence:latest
+    pull_policy: always
+    container_name: alert-persistence-service
+    ports:
+      - "8083:8080"
+    depends_on:
+      - kafka
+    env_file:
+      - .env
 
   prometheus:
-    image: prom/prometheus
+    image: prom/prometheus:latest
     container_name: prometheus
-    ports:
-      - "9090:9090"
     volumes:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-    networks:
-      - kafka-net
+    ports:
+      - "9090:9090"
+    depends_on:
+      - validation-service
+      - archive-service
+      - alert-service
+      - alert-persistence-service
+      - notify-service
+
+  grafana:
+    image: grafana/grafana:latest
+    ports: [ "3000:3000" ]
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+
+
+  kafka-exporter:
+    image: danielqsj/kafka-exporter:latest
+    container_name: kafka-exporter
+    command:
+      - --kafka.server=kafka:29092
+    restart: unless-stopped
+    ports:
+      - "9308:9308"
+    depends_on:
+      - kafka
+
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter
+    container_name: postgres-exporter
+    environment:
+      DATA_SOURCE_NAME: "postgresql://postgres:admin@postgres:5432/iot?sslmode=disable"
+    ports:
+      - "9187:9187"
+    depends_on:
+      - postgres
+
+
 
 volumes:
-  minio_data:
-
-networks:
-  kafka-net:
-    driver: bridge
+  mongo-data:
+  postgres-data:
+  minio-data:

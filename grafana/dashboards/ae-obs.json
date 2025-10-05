@@ -1,0 +1,249 @@
+{
+  "uid": "ae-obs",
+  "title": "AE – Observability",
+  "timezone": "browser",
+  "schemaVersion": 38,
+  "version": 1,
+  "tags": ["ae", "observability", "prometheus", "micrometer", "kafka", "minio", "postgres"],
+  "time": { "from": "now-6h", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "type": "query",
+        "name": "datasource",
+        "label": "Prometheus",
+        "hide": 0,
+        "query": "prometheus",
+        "current": { "text": "Prometheus", "value": "Prometheus" },
+        "datasource": null
+      },
+      {
+        "type": "query",
+        "name": "spring_job",
+        "label": "Spring job",
+        "datasource": "$datasource",
+        "query": "label_values(up{job!=\"\"}, job)",
+        "current": { "text": "spring-services", "value": "spring-services" }
+      },
+      {
+        "type": "query",
+        "name": "kafka_job",
+        "label": "Kafka exporter job",
+        "datasource": "$datasource",
+        "query": "label_values(up{job=~\".*kafka.*\"}, job)",
+        "current": { "text": "kafka-exporter", "value": "kafka-exporter" }
+      },
+      {
+        "type": "query",
+        "name": "pg_job",
+        "label": "Postgres exporter job",
+        "datasource": "$datasource",
+        "query": "label_values(up{job=~\".*postgres.*\"}, job)",
+        "current": { "text": "postgres-exporter", "value": "postgres-exporter" }
+      },
+      {
+        "type": "query",
+        "name": "minio_job",
+        "label": "MinIO job",
+        "datasource": "$datasource",
+        "query": "label_values(up{job=~\".*minio.*\"}, job)",
+        "current": { "text": "minio", "value": "minio" }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "type": "table",
+      "title": "Service KPIs (Micrometer, last 5m)",
+      "gridPos": { "x": 0, "y": 0, "w": 24, "h": 10 },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": "$datasource",
+          "expr": "sum by(__name__) (rate(iot_alerts_triggered_total{job=\"$spring_job\"}[5m]))",
+          "legendFormat": "iot_alerts_triggered_total (rate/5m)"
+        },
+        {
+          "refId": "B",
+          "datasource": "$datasource",
+          "expr": "sum by(severity) (rate(iot_alerts_triggered_total{job=\"$spring_job\"}[5m]))",
+          "legendFormat": "alerts_by_severity: {{severity}} (rate/5m)"
+        },
+        {
+          "refId": "C",
+          "datasource": "$datasource",
+          "expr": "sum by(__name__) (rate(iot_alert_failure_total{job=\"$spring_job\"}[5m]))",
+          "legendFormat": "iot_alert_failure_total (rate/5m)"
+        },
+        {
+          "refId": "D",
+          "datasource": "$datasource",
+          "expr": "sum by(__name__) (rate(iot_alert_success_total{job=\"$spring_job\"}[5m]))",
+          "legendFormat": "iot_alert_success_total (rate/5m)"
+        },
+        {
+          "refId": "E",
+          "datasource": "$datasource",
+          "expr": "sum by(reason) (rate(iot_alerts_error_total{job=\"$spring_job\"}[5m]))",
+          "legendFormat": "alerts_error: {{reason}} (rate/5m)"
+        },
+        {
+          "refId": "F",
+          "datasource": "$datasource",
+          "expr": "sum by(deviceType) (rate(iot_alerts_checked_total{job=\"$spring_job\"}[5m]))",
+          "legendFormat": "alerts_checked: {{deviceType}} (rate/5m)"
+        },
+        {
+          "refId": "G",
+          "datasource": "$datasource",
+          "expr": "sum by(severity) (rate(iot_alerts_persist_total{job=\"$spring_job\"}[5m]))",
+          "legendFormat": "alerts_persist: {{severity}} (rate/5m)"
+        },
+        {
+          "refId": "H",
+          "datasource": "$datasource",
+          "expr": "sum by(__name__) (rate(iot_alerts_persist_error_total{job=\"$spring_job\"}[5m]))",
+          "legendFormat": "alerts_persist_error_total (rate/5m)"
+        },
+        {
+          "refId": "I",
+          "datasource": "$datasource",
+          "expr": "sum by(reason) (rate(iot_message_errors_total{job=\"$spring_job\"}[5m]))",
+          "legendFormat": "message_errors: {{reason}} (rate/5m)"
+        },
+        {
+          "refId": "J",
+          "datasource": "$datasource",
+          "expr": "sum by(__name__) (rate(iot_message_success_total{job=\"$spring_job\"}[5m]))",
+          "legendFormat": "message_success_total (rate/5m)"
+        },
+        {
+          "refId": "K",
+          "datasource": "$datasource",
+          "expr": "sum by(__name__) (rate(archive_success_total{job=\"$spring_job\"}[5m]))",
+          "legendFormat": "archive_success_total (rate/5m)"
+        },
+        {
+          "refId": "L",
+          "datasource": "$datasource",
+          "expr": "sum by(__name__) (rate(archive_failure_total{job=\"$spring_job\"}[5m]))",
+          "legendFormat": "archive_failure_total (rate/5m)"
+        },
+        {
+          "refId": "M",
+          "datasource": "$datasource",
+          "expr": "sum(rate(archive_size_bytes_sum{job=\"$spring_job\"}[5m])) / sum(rate(archive_size_bytes_count{job=\"$spring_job\"}[5m]))",
+          "legendFormat": "archive_size_bytes_avg (last 5m)"
+        }
+      ],
+      "options": {
+        "showHeader": true,
+        "reduceOptions": { "calcs": ["lastNotNull"], "values": true },
+        "styles": []
+      },
+      "transformations": [
+        { "id": "labelsToFields", "options": { "mode": "columns" } },
+        { "id": "organize", "options": { "excludeByName": { "job": true }, "indexByName": {} } }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Kafka – total consumer lag",
+      "gridPos": { "x": 0, "y": 10, "w": 8, "h": 6 },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": "$datasource",
+          "expr": "sum(kafka_consumergroup_lag{job=\"$kafka_job\"})"
+        }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Postgres – db size (iot)",
+      "gridPos": { "x": 8, "y": 10, "w": 8, "h": 6 },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": "$datasource",
+          "expr": "pg_database_size_bytes{job=\"$pg_job\",datname=\"iot\"}"
+        }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      },
+      "fieldConfig": { "defaults": { "unit": "bytes" }, "overrides": [] }
+    },
+    {
+      "type": "stat",
+      "title": "MinIO – free capacity",
+      "gridPos": { "x": 16, "y": 10, "w": 8, "h": 6 },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": "$datasource",
+          "expr": "max(minio_cluster_capacity_usable_free_bytes{job=\"$minio_job\"})"
+        }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      },
+      "fieldConfig": { "defaults": { "unit": "bytes" }, "overrides": [] }
+    },
+    {
+      "type": "graph",
+      "title": "Alerts by severity (rate 5m)",
+      "gridPos": { "x": 0, "y": 16, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": "$datasource",
+          "expr": "sum by (severity) (rate(iot_alerts_triggered_total{job=\"$spring_job\"}[5m]))",
+          "legendFormat": "{{severity}}"
+        }
+      ],
+      "lines": true,
+      "fill": 3,
+      "linewidth": 2,
+      "nullPointMode": "connected",
+      "xaxis": { "mode": "time" },
+      "yaxis": { "format": "ops" }
+    },
+    {
+      "type": "graph",
+      "title": "Archive size avg (bytes, 5m)",
+      "gridPos": { "x": 12, "y": 16, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": "$datasource",
+          "expr": "sum(rate(archive_size_bytes_sum{job=\"$spring_job\"}[5m])) / sum(rate(archive_size_bytes_count{job=\"$spring_job\"}[5m]))",
+          "legendFormat": "avg bytes/file"
+        }
+      ],
+      "lines": true,
+      "fill": 3,
+      "linewidth": 2,
+      "nullPointMode": "connected",
+      "xaxis": { "mode": "time" },
+      "yaxis": { "format": "bytes" }
+    }
+  ],
+  "annotations": {
+    "list": [
+      { "builtIn": 1, "name": "Annotations & Alerts", "type": "dashboard", "enable": true, "hide": false }
+    ]
+  }
+}

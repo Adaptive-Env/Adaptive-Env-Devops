@@ -1,0 +1,9 @@
+apiVersion: 1
+providers:
+  - name: 'ae-dashboards'
+    orgId: 1
+    folder: 'AE'
+    type: file
+    updateIntervalSeconds: 10
+    options:
+      path: /var/lib/grafana/dashboards
